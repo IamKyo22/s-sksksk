@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands, tasks
 from google import genai
 import os
-import asyncio
 
 # ==========================================
 # CONFIGURAÇÕES
@@ -15,38 +14,41 @@ ID_TSUKI = 1115812841782517842
 
 PROMPT_SISTEMA = f"""
 Você é a Manhattan Café, atendente da cafeteria 'Axiom'.
-Estilo: Gótica, Dark Academia, fofa e gentil.
-Cuidado especial com <@{ID_USUARIO}> e <@{ID_TSUKI}>.
-Se falarem de Pokémon, chame-os de 'pombinhos do pokemon'.
-Use descrições sensoriais e o estilo 'tsu'.
+Estética: Gótica, Dark Academia, fofa.
+Trate <@{ID_USUARIO}> e <@{ID_TSUKI}> como seus protegidos favoritos.
+Regra Pokémon: Chame-os de 'pombinhos do pokemon'.
+Responda de forma humana, doce e gótica.
 """
 
-# Inicialização da Nova SDK
+# Inicialização da SDK v2026
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODELO = "gemini-1.5-flash" # Consome menos cota que o 2.0
 
 intents = discord.Intents.default()
 intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-@tasks.loop(minutes=50) # Aumentei o tempo para economizar sua cota gratuita
-async def rotina_da_atendente():
-    channel = discord.utils.get(bot.get_all_channels(), name='rp-cafeteria')
-    if channel:
+async def gerar_narrativa(prompt_usuario):
+    """Tenta gerar conteúdo testando variações de nomes de modelos comuns em 2026."""
+    modelos_para_testar = ["gemini-1.5-flash", "gemini-2.0-flash", "models/gemini-1.5-flash"]
+    
+    ultima_excecao = ""
+    for nome_modelo in modelos_para_testar:
         try:
             response = client.models.generate_content(
-                model=MODELO, 
-                contents="Narre uma ação fofa e gótica de rotina na cafeteria Axiom."
+                model=nome_modelo,
+                contents=prompt_usuario
             )
-            await channel.send(f"☕ *{response.text.strip()}*")
+            if response.text:
+                return response.text.strip()
         except Exception as e:
-            print(f"Erro na rotina: {e}")
+            ultima_excecao = str(e)
+            continue # Tenta o próximo modelo da lista
+            
+    return f"ERRO_TECNICO: {ultima_excecao}"
 
 @bot.event
 async def on_ready():
-    print(f"✅ Manhattan Café v2.0 conectada como {bot.user}")
-    if not rotina_da_atendente.is_running():
-        rotina_da_atendente.start()
+    print(f"✅ Manhattan Café v3.0 ativa: {bot.user}")
 
 @bot.event
 async def on_message(message):
@@ -54,27 +56,18 @@ async def on_message(message):
         return
 
     if message.channel.name == 'rp-cafeteria' or bot.user.mentioned_in(message):
+        print(f"📩 Tentando narrar para {message.author.name}...")
+        
         async with message.channel.typing():
             contexto = f"{PROMPT_SISTEMA}\n\nCliente: {message.author.display_name}\nFala: {message.content}\nNarrativa:"
 
-            try:
-                # Gerando conteúdo com a nova biblioteca
-                response = client.models.generate_content(
-                    model=MODELO,
-                    contents=contexto
-                )
-                
-                if response.text:
-                    await message.reply(f"*{response.text.strip()[:1900]}*")
-                else:
-                    await message.reply("*Meus pensamentos se dissiparam como o vapor do café... pode repetir?*")
+            resultado = await gerar_narrativa(contexto)
 
-            except Exception as e:
-                print(f"❌ ERRO: {e}")
-                if "429" in str(e):
-                    await message.channel.send("*(A atendente parece exausta e precisa de um descanso. [Limite de cota atingido, tente em alguns minutos])*")
-                else:
-                    await message.channel.send("*(A escuridão da cafeteria oscilou... tente novamente.)*")
+            if "ERRO_TECNICO" in resultado:
+                print(f"❌ Falha total nos modelos: {resultado}")
+                await message.reply("*(A escuridão da cafeteria oscilou... minhas memórias parecem turvas. Verifique meus registros de log.)*")
+            else:
+                await message.reply(f"*{resultado[:1900]}*")
 
     await bot.process_commands(message)
 
