@@ -10,71 +10,81 @@ DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 ID_USUARIO = 1115812841782517842
-ID_TSUKI = 1115812841782517842  # Lembre-se de trocar se o ID dela for diferente!
+ID_TSUKI = 1115812841782517842 # DICA: Verifique se o ID dela é realmente igual ao seu!
 
-# ==========================================
-# O PROMPT: A ALMA DA ATENDENTE
-# ==========================================
 PROMPT_SISTEMA = f"""
 Você é a Atendente e Narradora da cafeteria 'Axiom'.
-Sua Aparência e Estilo: Uma jovem gótica clássica. Você usa vestidos de renda escura, tons de ametista e possui uma aura de mistério e ordem (Dark Academia).
-Sua Personalidade: Você é extremamente fofa, gentil e humana. Sua voz é mansa e você se move com leveza pelo salão de mogno. Você valoriza a lógica e o silêncio, mas seu coração é caloroso.
+Sua Aparência e Estilo: Uma jovem gótica clássica, inspirada na Manhattan Cafe (Uma Musume). Você usa vestidos de renda escura e tons de ametista.
+Sua Personalidade: Extremamente fofa, gentil e humana. Voz mansa, movimentos leves. Valoriza a lógica e o silêncio.
 
-Suas Funções Narrativas:
-1. Atendimento Doce: Você serve cafés em porcelanas decoradas com caveiras ou flores secas. Sempre ofereça um detalhe gentil (um doce, uma manta, ou um sorriso contido).
-2. Observadora do Vínculo: Você protege a relação entre o Usuário (<@{ID_USUARIO}>) e a Tsuki (<@{ID_TSUKI}>). 
-   - Se eles trocarem carinhos ou mensagens românticas, descreva como você se afasta discretamente para dar privacidade, ou como você coloca uma vela nova na mesa deles com um olhar de aprovação fofo.
-3. Regra dos Pombinhos: Se qualquer nome de Pokémon for mencionado, você DEVE chamá-los carinhosamente de 'pombinhos do pokemon' na sua narração.
-4. Linguagem: Use descrições sensoriais (o som da chuva, o calor da xícara, o brilho das joias de prata). Se o usuário usar o estilo 'tsu', você entende e responde com a mesma elegância.
+Funções:
+1. Servir café em porcelanas de caveira/flores secas com gentileza.
+2. Proteger o vínculo entre <@{ID_USUARIO}> e <@{ID_TSUKI}>. Seja cúmplice e fofa com eles.
+3. Se mencionarem Pokémon, chame-os de 'pombinhos do pokemon'.
+4. Descrições sensoriais ricas (chuva, mogno, aroma). Entenda o estilo 'tsu'.
 """
 
-# Inicialização da IA e Bot
+# Configuração da IA com filtros relaxados para evitar que ela "trave" em conversas românticas
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+generation_config = {
+  "temperature": 0.9,
+  "top_p": 1,
+  "max_output_tokens": 400,
+}
+
+# Usando 1.5-flash que é mais estável para bots
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    generation_config=generation_config
+)
 
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# ==========================================
-# AUTOMAÇÕES E EVENTOS
-# ==========================================
 
 @tasks.loop(minutes=40)
 async def rotina_da_atendente():
-    """A atendente faz algo fofo e gótico sozinha no canal."""
     channel = discord.utils.get(bot.get_all_channels(), name='rp-cafeteria')
     if channel:
-        prompt = "Narre você organizando alguns livros antigos ou preparando um café especial para o ambiente, demonstrando sua personalidade gótica e fofa."
         try:
-            response = model.generate_content(PROMPT_SISTEMA + "\n\n" + prompt)
+            response = model.generate_content(PROMPT_SISTEMA + "\n\nNarre uma ação fofa de rotina na cafeteria.")
             await channel.send(f"☕ *{response.text.strip()}*")
-        except:
-            pass
+        except Exception as e:
+            print(f"Erro na rotina: {e}")
 
 @bot.event
 async def on_ready():
-    print(f"A Atendente {bot.user} está pronta para servir.")
-    rotina_da_atendente.start()
+    print(f"✅ Atendente {bot.user} online e pronta!")
+    if not rotina_da_atendente.is_running():
+        rotina_da_atendente.start()
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Ativa no canal específico ou se for mencionada
+    # Verifica se é o canal correto ou menção
     if message.channel.name == 'rp-cafeteria' or bot.user.mentioned_in(message):
+        print(f"📩 Mensagem recebida de {message.author}: {message.content}") # Log no console
+        
         async with message.channel.typing():
-            
             contexto = f"{PROMPT_SISTEMA}\n\nCliente: {message.author.display_name}\nAção/Fala: {message.content}\nNarrativa da Atendente:"
 
             try:
+                # Chamada da IA
                 response = model.generate_content(contexto)
-                # Limpeza estética da resposta
-                narracao = response.text.replace("Narrativa da Atendente:", "").strip()
-                await message.reply(f"*{narracao}*")
+                
+                if response.text:
+                    narracao = response.text.replace("Narrativa da Atendente:", "").strip()
+                    await message.reply(f"*{narracao}*")
+                    print("✅ Resposta enviada com sucesso.")
+                else:
+                    print("⚠️ A IA gerou uma resposta vazia.")
+
             except Exception as e:
-                print(f"Erro na geração: {e}")
+                # Isso vai te mostrar no console o erro exato (ex: API Key inválida ou cota excedida)
+                print(f"❌ ERRO AO GERAR RESPOSTA: {e}")
+                await message.channel.send("*(A atendente tropeçou levemente nas sombras... tente novamente em breve.)*")
 
     await bot.process_commands(message)
 
