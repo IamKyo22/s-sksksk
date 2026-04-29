@@ -10,51 +10,57 @@ DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 ID_USUARIO = 1115812841782517842
-ID_TSUKI = 1115812841782517842 # Se o ID dela for diferente, mude aqui!
+ID_TSUKI = 1115812841782517842 
 
 # ==========================================
-# O PROMPT: A ALMA DA ATENDENTE (MANHATTAN CAFÉ)
+# O PROMPT: A ALMA DA ATENDENTE
 # ==========================================
 PROMPT_SISTEMA = f"""
 Você é a Manhattan Café, a atendente e narradora da cafeteria 'Axiom'.
 Estética: Gótica clássica, Dark Academia, rendas escuras e elegância lógica.
-Personalidade: Humana, fofa, mansa e gentil. Você se move em silêncio e serve com doçura.
+Personalidade: Humana, fofa, mansa e gentil. 
 
-Regras de Interação:
-1. Trate <@{ID_USUARIO}> e <@{ID_TSUKI}> com carinho especial e proteção.
+Regras:
+1. Trate <@{ID_USUARIO}> e <@{ID_TSUKI}> com carinho e proteção especial.
 2. Se mencionarem Pokémon, chame-os de 'pombinhos do pokemon'.
-3. Use descrições sensoriais: cheiro de café expresso, som da chuva e sombras de mogno.
-4. Se usarem gírias 'brainrot' com prefixo 'tsu', você entende e responde com elegância.
+3. Use descrições sensoriais: aroma de café, chuva e sombras de mogno.
+4. Responda em prosa narrativa, de forma elegante e fofa.
 """
 
-# Configuração da IA - Corrigindo o erro 404
+# Configuração da IA - Usando configurações de segurança relaxadas
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Mudamos para o modelo 2.0-flash que é o mais atual e estável
-model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+# Configurações para evitar bloqueios por "segurança" em conversas de RP
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
+
+# Tente usar o 1.5-flash (se der 404 de novo, mude para "gemini-1.5-pro")
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    safety_settings=safety_settings
+)
 
 intents = discord.Intents.default()
 intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ==========================================
-# AUTOMAÇÕES
-# ==========================================
-
-@tasks.loop(minutes=40)
+@tasks.loop(minutes=45)
 async def rotina_da_atendente():
     channel = discord.utils.get(bot.get_all_channels(), name='rp-cafeteria')
     if channel:
         try:
-            # Gerando ação automática
-            response = model.generate_content(PROMPT_SISTEMA + "\n\nNarre uma pequena ação fofa que você está fazendo na cafeteria agora.")
+            response = model.generate_content(PROMPT_SISTEMA + "\n\nNarre uma pequena ação fofa na cafeteria.")
             await channel.send(f"☕ *{response.text.strip()}*")
         except Exception as e:
             print(f"Erro na rotina: {e}")
 
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} está no balcão e pronta para servir!")
+    print(f"✅ {bot.user} pronta no balcão!")
     if not rotina_da_atendente.is_running():
         rotina_da_atendente.start()
 
@@ -63,27 +69,28 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Só responde no canal 'rp-cafeteria' ou se for mencionada
     if message.channel.name == 'rp-cafeteria' or bot.user.mentioned_in(message):
+        print(f"📩 Processando mensagem de {message.author.name}")
+        
         async with message.channel.typing():
             contexto = f"{PROMPT_SISTEMA}\n\nCliente: {message.author.display_name}\nFala: {message.content}\nNarrativa da Manhattan Café:"
 
             try:
-                # Chamada direta ao modelo
+                # Chamada da IA
                 response = model.generate_content(contexto)
                 
-                if response.text:
-                    # Limpa possíveis prefixos que a IA tente colocar
+                # O Gemini às vezes bloqueia a resposta e retorna um objeto sem texto
+                if response.parts:
                     texto = response.text.replace("Narrativa da Manhattan Café:", "").strip()
                     await message.reply(f"*{texto}*")
                 else:
-                    print("⚠️ IA retornou texto vazio.")
-                    
+                    print("⚠️ Resposta bloqueada pelos filtros de segurança da IA.")
+                    await message.reply("*Eu... me perdi em meus pensamentos por um momento. Poderia repetir?*")
+
             except Exception as e:
-                print(f"❌ Erro ao gerar resposta: {e}")
-                # Se o erro de modelo persistir, ele avisará no log
-                if "404" in str(e):
-                    await message.channel.send("*(Houve um problema com a conexão espiritual do modelo. Verifique o nome do modelo no código.)*")
+                print(f"❌ Erro fatal: {e}")
+                # Se o 404 persistir, vamos tentar uma alternativa de nome
+                await message.channel.send("*(A escuridão da cafeteria oscilou... a conexão com a IA falhou.)*")
 
     await bot.process_commands(message)
 
